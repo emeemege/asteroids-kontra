@@ -7,6 +7,8 @@
   <style id="webmakerstyle">
     body {
       background: black;
+      display: flex;
+      justify-content: center;
     }
 
     canvas {
@@ -20,7 +22,209 @@
 
   <script src="kontra.js"></script>
   <script>
+    kontra.init();
+    kontra.initKeys();
 
+    // helper function to convert degrees to radiants
+    function degreesToRadiants(degrees) {
+      return degrees * Math.PI / 180;
+    }
+
+    let sprites = [];
+
+    function createShipBullet(x, y, dx, dy, rotation) {
+      const cos = Math.cos(degreesToRadiants(rotation));
+      const sin = Math.sin(degreesToRadiants(rotation));
+      let bullet = kontra.Sprite({
+        type: 'bullet',
+        // start the bullet on the ship at the end of the triangle
+        x: x + cos * 12,
+        y: y + sin * 12,
+
+        // move the bullet slightly faster than the ship
+        dx: dx + cos * 5,
+        dy: dy + sin * 5,
+
+        // live only 50 frames
+        ttl: 50,
+
+        // bullets are small
+        width: 2,
+        height: 2,
+        color: 'white'
+      });
+      sprites.push(bullet);
+    }
+    
+    function createShip() {
+      let ship = kontra.Sprite({
+        type: 'ship',
+        x: 300,
+        y: 300,
+        width: 6,
+        rotation: 0,
+        dt: 0,
+        render() {
+          this.context.save();
+
+          // transform the origin and rotate around it
+          // using the ships rotation
+          this.context.translate(this.x, this.y);
+          this.context.rotate(degreesToRadiants(this.rotation));
+
+          this.context.strokeStyle = 'white';
+          // draw a right facing triangle
+          this.context.beginPath();
+          this.context.moveTo(-3, -5);
+          this.context.lineTo(12, 0);
+          this.context.lineTo(-3, 5);
+
+          this.context.closePath();
+          this.context.stroke();
+          this.context.restore();
+        },
+        update() {
+          // rotate the ship left or right
+          if (kontra.keyPressed('left')) {
+            this.rotation += -4;
+          }
+          else if (kontra.keyPressed('right')) {
+            this.rotation += 4;
+          }
+
+          // move the ship forward in the direction it's facing
+          const cos = Math.cos(degreesToRadiants(this.rotation));
+          const sin = Math.sin(degreesToRadiants(this.rotation));
+
+          if (kontra.keyPressed('up')) {
+            this.ddx = cos * 0.05;
+            this.ddy = sin * 0.05;
+          } else {
+            this.ddx = 0;
+            this.ddy = 0;
+          }
+
+          this.advance();
+
+          // set a max speed
+          const magnitude = Math.sqrt(this.dx * this.dx + this.dy * this.dy);
+          if (magnitude > 5) {
+            this.dx *= 0.95;
+            this.dy *= 0.95;
+          }
+
+          // allow the player to fire no more than 1 bullet every 1/4 second
+          this.dt += 1 / 60;
+          if (kontra.keyPressed('space') && this.dt > 0.25) {
+            this.dt = 0;
+            createShipBullet(this.x, this.y, this.dx, this.dy, this.rotation);
+          }
+        }
+      });
+      sprites.push(ship);
+    }
+
+    function createAsteroid(x, y, radius) {
+      let asteroid = kontra.Sprite({
+        type: 'asteroid',
+        x: x,
+        y: y,
+        dx: Math.random() * 4 - 2,
+        dy: Math.random() * 4 - 2,
+        radius: radius,
+        render() {
+          this.context.strokeStyle = 'white';
+          this.context.beginPath(); // start drawing shape
+          this.context.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+          this.context.stroke(); // outline the circle
+        }
+      });
+
+      sprites.push(asteroid);
+    }
+
+    function addAsteroids(amount) {
+      for (var i = 0; i < amount; i++) {
+        createAsteroid(100, 100, 30);
+      }
+    }
+
+    function setLevel() {
+      sprites = [];
+      createShip();
+      addAsteroids(4);
+    }
+
+    let loop = kontra.GameLoop({
+      update() {
+        let canvas = kontra.getCanvas();
+
+        sprites.map(sprite => {
+          sprite.update();
+
+          // sprite is beyond the left edge
+          if (sprite.x < 0) {
+            sprite.x = canvas.width;
+          }
+          // sprite is beyond the right edge
+          else if (sprite.x > canvas.width) {
+            sprite.x = 0
+          }
+          // sprite is beyond the top edege
+          if (sprite.y < 0) {
+            sprite.y = canvas.height;
+          }
+          // sprite is beyond the bottom edge
+          else if (sprite.y > canvas.height) {
+            sprite.y = 0;
+          }
+        });
+
+        // collision detection
+        for (let i = 0; i < sprites.length; i++) {
+          // Only check for collisions against asteroids
+          if (sprites[i].type === 'asteroid') {
+            for (let j = 0; j < sprites.length; j++) {
+              // do not check asteroids vs asteroids collisions
+              if (sprites[j].type !== 'asteroid') {
+                let asteroid = sprites[i];
+                let sprite = sprites[j];
+
+                // circle vs. circle collision detection
+                let dx = asteroid.x - sprite.x;
+                let dy = asteroid.y - sprite.y;
+                if (Math.sqrt(dx * dx + dy * dy) < asteroid.radius + sprite.width) {
+                  asteroid.ttl = 0;
+                  sprite.ttl = 0;
+
+                  if(sprite.type === 'ship') {
+                    setLevel();
+                    break;
+                  }
+
+                  // Split the asteroid only if it's large enough
+                  if (asteroid.radius > 10) {
+                    for (let x = 0; x < 3; x++) {
+                      createAsteroid(asteroid.x, asteroid.y, asteroid.radius / 2.5);
+                    }
+                  }
+                  break;
+                }
+              }
+            }
+          }
+        }
+
+        sprites = sprites.filter(sprite => sprite.isAlive());
+      },
+      render() {
+        sprites.map(sprite => {
+          sprite.render();
+        });
+      }
+    });
+    setLevel();
+    loop.start();
   </script>
 </body>
 
